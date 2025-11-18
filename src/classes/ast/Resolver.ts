@@ -1,22 +1,25 @@
 import Lox from "../Lox";
 import Token from "../types/Token";
-import { Assign, Binary, Call, Expr, ExprVisitor, Get, Grouping, Literal, Logical, Set, This, Unary, Variable } from "./Expr";
+import { TokenType } from "../types/TokenType";
+import { Assign, Binary, Call, Expr, ExprVisitor, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable } from "./Expr";
 import Interpreter from "./Interpreter";
 import { Block, Class, Expression, Function, If, Print, Return, Stmt, StmtVisitor, Var, While } from "./Stmt";
 
 class TokenInfo {
     token: Token;
-    isReady: Boolean = false;
-    isUsed: Boolean = false;
+    isReady: boolean = false;
+    isUsed: boolean = false;
 
-    constructor(token: Token) {
+    constructor(token: Token, isReady: boolean) {
         this.token = token;
+        this.isReady = isReady;
     }
 }
 
 enum ClassType {
     NONE,
     CLASS,
+    SUBCLASS,
 }
 
 enum FunctionType {
@@ -51,11 +54,11 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
 
     private endScope(): void {
         const scope = this.scopes.pop();
-        scope.forEach((token, key) => {
-            if (token.token.lexeme !== 'this' && !token.isUsed) {
-                Lox.error(token.token, `Variable '${token.token.lexeme}' is declared but never used.`);
-            }
-        });
+        // scope.forEach((token, key) => {
+        //     if (token.token.lexeme !== 'this' && !token.isUsed) {
+        //         Lox.error(token.token, `Variable '${token.token.lexeme}' is declared but never used.`);
+        //     }
+        // });
     }
 
     private declare(name: Token): void {
@@ -66,7 +69,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
             Lox.error(name, "Variable with this name already exists in this scope.");
         }
 
-        scope.set(name.lexeme, new TokenInfo(name));
+        scope.set(name.lexeme, new TokenInfo(name, false));
     }
 
     private define(name: Token): void {
@@ -111,8 +114,20 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         this.declare(stmt.name);
         this.define(stmt.name);
 
+        if (stmt.superclass && stmt.name.lexeme === stmt.superclass.name.lexeme) {
+            Lox.error(stmt.superclass.name, "A class can't inherit from itself.");
+        }
+
+        if (stmt.superclass) {
+            this.resolve(stmt.superclass);
+            this.currentClass = ClassType.SUBCLASS;
+            this.beginScope();
+            this.peek().set('super', new TokenInfo(stmt.name, true));
+        }
+
+
         this.beginScope();
-        this.peek().set('this', new TokenInfo(stmt.name));
+        this.peek().set('this', new TokenInfo(stmt.name, false));
 
         stmt.methods.forEach(method => {
             let declaration = FunctionType.METHOD;
@@ -121,6 +136,8 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
             }
             this.resolveFunction(method, declaration);
         });
+
+        if (stmt.superclass) this.endScope();
 
         this.endScope();
         this.currentClass = enclosingClass;
@@ -207,6 +224,15 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     visitSetExpr(expr: Set): void {
         this.resolve(expr.value);
         this.resolve(expr.object);
+    }
+
+    visitSuperExpr(expr: Super): void {
+        if (this.currentClass === ClassType.NONE) {
+            Lox.error(expr.keyword, "Can't user 'super' outside of class.");
+        } else if (this.currentClass !== ClassType.SUBCLASS) {
+            Lox.error(expr.keyword, "Can't user 'super' in a class with no superclass.");
+        }
+        this.resolveLocal(expr, expr.keyword);
     }
 
     visitThisExpr(expr: This): void {

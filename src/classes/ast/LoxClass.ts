@@ -3,18 +3,24 @@ import LoxCallable from "./LoxCallable";
 import LoxFunction from "./LoxFunction";
 import LoxInstance from "./LoxInstance";
 
-export default class LoxClass extends LoxInstance implements LoxCallable {
+export default class LoxClass implements LoxCallable {
     name: string;
     private methods: Map<string, LoxFunction>;
+    superclass: LoxClass;
 
-    constructor(name: string, methods: Map<string, LoxFunction>) {
+    constructor(name: string, superclass: LoxClass, methods: Map<string, LoxFunction>) {
         this.name = name;
+        this.superclass = superclass;
         this.methods = methods;
     }
 
     findMethod(name: string): LoxFunction {
         if (this.methods.has(name)) {
             return this.methods.get(name);
+        }
+
+        if (this.superclass) {
+            return this.superclass.findMethod(name);
         }
 
         return null;
