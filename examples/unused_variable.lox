@@ -1,0 +1,5 @@
+var a = 5;
+{
+    var a = 5; // Warn that b isn't used
+}
+print a;

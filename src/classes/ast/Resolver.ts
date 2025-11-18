@@ -4,10 +4,27 @@ import { Assign, Binary, Call, Expr, ExprVisitor, Grouping, Literal, Logical, Un
 import Interpreter from "./Interpreter";
 import { Block, Expression, Function, If, Print, Return, Stmt, StmtVisitor, Var, While } from "./Stmt";
 
+class TokenInfo {
+    token: Token;
+    isReady: Boolean = false;
+    isUsed: Boolean = false;
+
+    constructor(token: Token) {
+        this.token = token;
+    }
+}
+
+enum FunctionType {
+    NONE,
+    FUNCTION,
+}
+
 export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
 
     private interpreter: Interpreter;
-    private scopes: Map<string, boolean>[];
+    private scopes: Map<string, TokenInfo>[] = [];
+    private currentFunction = FunctionType.NONE;
+
 
     constructor(interpreter: Interpreter) {
         this.interpreter = interpreter;
@@ -22,33 +39,48 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     }
 
     private beginScope(): void {
-        this.scopes.push(new Map<string, boolean>());
+        this.scopes.push(new Map<string, TokenInfo>());
     }
 
     private endScope(): void {
-        this.scopes.pop();
+        const scope = this.scopes.pop();
+        scope.forEach((token, key) => {
+            if (!token.isUsed) {
+                Lox.error(token.token, `Variable '${token.token.lexeme}' is declared but never used.`);
+            }
+        });
     }
 
     private declare(name: Token): void {
         if (this.isEmpty()) return;
-        this.peek().set(name.lexeme, false);
+        
+        const scope = this.peek()
+        if (scope.has(name.lexeme)) {
+            Lox.error(name, "Variable with this name already exists in this scope.");
+        }
+
+        scope.set(name.lexeme, new TokenInfo(name));
     }
 
     private define(name: Token): void {
         if (this.isEmpty()) return;
-        this.peek().set(name.lexeme, true);
+        this.peek().get(name.lexeme).isReady = true;
     }
 
     private resolveLocal(expr: Expr, name: Token): void {
         for (let i = this.scopes.length - 1; i >= 0; i--) {
             if (this.scopes[i].has(name.lexeme)) {
                 this.interpreter.resolve(expr, this.scopes.length - 1 - i);
+                this.scopes[i].get(name.lexeme).isUsed = true;
                 return;
             }
         }
     }
 
-    private resolveFunction(func: Function): void {
+    private resolveFunction(func: Function, type: FunctionType): void {
+        const enclosingFunction = this.currentFunction;
+        this.currentFunction = type; 
+
         this.beginScope();
         func.params.forEach(param => {
             this.declare(param);
@@ -56,6 +88,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         });
         this.resolve(func.body);
         this.endScope();
+        this.currentFunction = enclosingFunction;
     }
 
     visitBlockStmt(stmt: Block): void {
@@ -72,7 +105,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         this.declare(stmt.name);
         this.define(stmt.name);
 
-        this.resolveFunction(stmt);
+        this.resolveFunction(stmt, FunctionType.FUNCTION);
     }
 
     visitIfStmt(stmt: If): void {
@@ -86,6 +119,9 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     }
 
     visitReturnStmt(stmt: Return): void {
+        if (this.currentFunction == FunctionType.NONE) {
+            Lox.error(stmt.keyword, "Can't return from top-level code.");
+        }
         if (stmt.value) this.resolve(stmt.value);
     }
 
@@ -135,7 +171,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     }
 
     visitVariableExpr(expr: Variable): void {
-        if (this.isEmpty() && this.peek().get(expr.name.lexeme) == false) {
+        if (!this.isEmpty() && this.peek().get(expr.name.lexeme).isReady == false) {
             Lox.error(expr.name, "Can't read local variable in its own initializer.");
         }
 
@@ -146,7 +182,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         return this.scopes.length === 0;
     }
 
-    private peek(): Map<string, Boolean> {
+    private peek(): Map<string, TokenInfo> {
         return this.scopes[this.scopes.length - 1];
     }
 }

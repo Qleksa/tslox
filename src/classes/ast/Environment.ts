@@ -49,4 +49,8 @@ export default class Environment {
     getAt(distance: number, name: string): any {
         return this.ancestor(distance).values.get(name);
     }
+
+    assignAt(distance: number, name: Token, value: any): void {
+        this.ancestor(distance).values.set(name.lexeme, value);
+    }
 }

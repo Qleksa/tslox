@@ -6,6 +6,7 @@ import Token from './types/Token';
 import { TokenType } from './types/TokenType';
 import Parser from './ast/Parser';
 import Interpreter, { RuntimeError } from './ast/Interpreter';
+import Resolver from './ast/Resolver';
 
 export default class Lox {
     private static interpreter = new Interpreter();
@@ -14,10 +15,10 @@ export default class Lox {
 
     static runFile(path: string) {
         const data = fs.readFileSync(path, 'utf-8');
-        Lox.run(data);
+        this.run(data);
 
-        if (Lox.hadError) process.exit(65);
-        if (Lox.hadRuntimeError) process.exit(70);
+        if (this.hadError) process.exit(65);
+        if (this.hadRuntimeError) process.exit(70);
     }
 
     static runPrompt() {
@@ -30,8 +31,8 @@ export default class Lox {
         rl.prompt();
 
         rl.on('line', (input) => {
-            Lox.run(input);
-            Lox.hadError = false;
+            this.run(input);
+            this.hadError = false;
             rl.prompt();
         });
     }
@@ -43,8 +44,14 @@ export default class Lox {
         const parser = new Parser(tokens);
         const statements = parser.parse();
 
-        if (Lox.hadError) return;
-        Lox.interpreter.interpret(statements);
+        if (this.hadError) return;
+
+        const resolver = new Resolver(this.interpreter);
+        resolver.resolve(statements);
+
+        if (this.hadError) return;
+
+        this.interpreter.interpret(statements);
     }
 
     private static report(line: number, where: string, message: string): void {
@@ -55,19 +62,19 @@ export default class Lox {
     static error(token: Token, message: string): void;
     static error(lineOrToken: number | Token, message: string): void {
         if (typeof lineOrToken === 'number') {
-            Lox.report(lineOrToken, '', message);
+            this.report(lineOrToken, '', message);
         } else {
             const token = lineOrToken;
             if (token.type == TokenType.EOF) {
-                Lox.report(token.line, " at end", message);
+                this.report(token.line, " at end", message);
             } else {
-                Lox.report(token.line, ` at '${token.lexeme}'`, message);
+                this.report(token.line, ` at '${token.lexeme}'`, message);
             }
         }
     }
 
     static runtimeError(error: RuntimeError): void {
         console.error(`${error.message}\n[line${error.token.line}]`);
-        Lox.hadRuntimeError = true;
+        this.hadRuntimeError = true;
     }
 }

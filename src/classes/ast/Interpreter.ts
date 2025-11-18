@@ -48,7 +48,10 @@ export default class Interpreter implements ExprVisitor<any>, StmtVisitor<void> 
 
     visitAssignExpr(expr: Assign) {
         const value = this.evaluate(expr.value);
-        this.env.assign(expr.name, value);
+
+        const distance = this.locals.get(expr);
+        distance ? this.env.assignAt(distance, expr.name, value) : this.globals.assign(expr.name, value);
+        
         return value;
     }
 
@@ -272,9 +275,4 @@ export class RuntimeError extends Error {
         super(message);
         this.token = token;
     }
-}
-
-function sleep(milis) {
-    let stop = new Date().getTime();
-    while (new Date().getTime() < stop + milis) {}
 }
