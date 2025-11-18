@@ -1,5 +1,5 @@
-import { Assign, Binary, Call, Expr, ExprVisitor, Grouping, Literal, Logical, Unary, Variable } from "./Expr";
-import { Block, Expression, Function, If, Print, Return as ReturnStmt, Stmt, StmtVisitor, Var, While } from "./Stmt";
+import { Assign, Binary, Call, Expr, ExprVisitor, Get, Grouping, Literal, Logical, Set, This, Unary, Variable } from "./Expr";
+import { Block, Class, Expression, Function, If, Print, Return as ReturnStmt, Stmt, StmtVisitor, Var, While } from "./Stmt";
 import Lox from "../Lox";
 import Token from "../types/Token";
 import { TokenType } from "../types/TokenType";
@@ -7,6 +7,8 @@ import Environment from "./Environment";
 import LoxCallable from "./LoxCallable";
 import LoxFunction from "./LoxFunction";
 import Return from "./Return";
+import LoxClass from "./LoxClass";
+import LoxInstance from "./LoxInstance";
 
 class ClockCallable implements LoxCallable {
 
@@ -69,6 +71,15 @@ export default class Interpreter implements ExprVisitor<any>, StmtVisitor<void> 
         }
 
         return func.call(this, args);
+    }
+
+    visitGetExpr(expr: Get) {
+        const object = this.evaluate(expr.object);
+        if (object instanceof LoxInstance) {
+            return object.get(expr.name);
+        }
+        
+        throw new RuntimeError(expr.name, "Only instances have properties.");
     }
 
     visitBinaryExpr(expr: Binary): any {
@@ -135,6 +146,22 @@ export default class Interpreter implements ExprVisitor<any>, StmtVisitor<void> 
         }
 
         return this.evaluate(expr.right);
+    }
+
+    visitSetExpr(expr: Set) {
+        const object = this.evaluate(expr.object);
+
+        if (!(object instanceof LoxInstance)) {
+            throw new RuntimeError(expr.name, "Only instances have fields.");
+        }
+
+        const value = this.evaluate(expr.value);
+        (object as LoxInstance).set(expr.name, value);
+        return value;
+    }
+    
+    visitThisExpr(expr: This) {
+        return this.lookUpVariable(expr.keyword, expr);
     }
 
     visitUnaryExpr(expr: Unary): any {
@@ -210,15 +237,14 @@ export default class Interpreter implements ExprVisitor<any>, StmtVisitor<void> 
         this.evaluate(stmt.expression);
     }
 
-    
     visitFunctionStmt(stmt: Function): void {
-        const func = new LoxFunction(stmt, this.env);
+        const func = new LoxFunction(stmt, this.env, false);
         this.env.define(stmt.name.lexeme, func);
     }
 
     visitPrintStmt(stmt: Print): void {
         const value = this.evaluate(stmt.expression);
-        console.log(value);
+        console.log(`${value}`);
     }
     
     visitReturnStmt(stmt: ReturnStmt): void {
@@ -230,6 +256,19 @@ export default class Interpreter implements ExprVisitor<any>, StmtVisitor<void> 
 
     visitBlockStmt(stmt: Block): void {
         this.executeBlock(stmt.statements, new Environment(this.env));
+    }
+
+    visitClassStmt(stmt: Class): void {
+        this.env.define(stmt.name.lexeme, null);
+
+        const methods = new Map<string, LoxFunction>();
+        stmt.methods.forEach(method => {
+            const func = new LoxFunction(method, this.env, method.name.lexeme === 'init');
+            methods.set(method.name.lexeme, func);
+        })
+
+        const klass = new LoxClass(stmt.name.lexeme, methods);
+        this.env.assign(stmt.name, klass);
     }
 
     visitVarStmt(stmt: Var): void {

@@ -1,8 +1,8 @@
 import Lox from "../Lox";
 import Token from "../types/Token";
-import { Assign, Binary, Call, Expr, ExprVisitor, Grouping, Literal, Logical, Unary, Variable } from "./Expr";
+import { Assign, Binary, Call, Expr, ExprVisitor, Get, Grouping, Literal, Logical, Set, This, Unary, Variable } from "./Expr";
 import Interpreter from "./Interpreter";
-import { Block, Expression, Function, If, Print, Return, Stmt, StmtVisitor, Var, While } from "./Stmt";
+import { Block, Class, Expression, Function, If, Print, Return, Stmt, StmtVisitor, Var, While } from "./Stmt";
 
 class TokenInfo {
     token: Token;
@@ -14,9 +14,16 @@ class TokenInfo {
     }
 }
 
+enum ClassType {
+    NONE,
+    CLASS,
+}
+
 enum FunctionType {
     NONE,
     FUNCTION,
+    INITIALIZER,
+    METHOD,
 }
 
 export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
@@ -24,7 +31,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     private interpreter: Interpreter;
     private scopes: Map<string, TokenInfo>[] = [];
     private currentFunction = FunctionType.NONE;
-
+    private currentClass = ClassType.NONE;
 
     constructor(interpreter: Interpreter) {
         this.interpreter = interpreter;
@@ -45,7 +52,7 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     private endScope(): void {
         const scope = this.scopes.pop();
         scope.forEach((token, key) => {
-            if (!token.isUsed) {
+            if (token.token.lexeme !== 'this' && !token.isUsed) {
                 Lox.error(token.token, `Variable '${token.token.lexeme}' is declared but never used.`);
             }
         });
@@ -97,6 +104,28 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         this.endScope();
     }
 
+    visitClassStmt(stmt: Class): void {
+        const enclosingClass = this.currentClass;
+        this.currentClass = ClassType.CLASS;
+
+        this.declare(stmt.name);
+        this.define(stmt.name);
+
+        this.beginScope();
+        this.peek().set('this', new TokenInfo(stmt.name));
+
+        stmt.methods.forEach(method => {
+            let declaration = FunctionType.METHOD;
+            if (method.name.lexeme === 'init') {
+                declaration = FunctionType.INITIALIZER;
+            }
+            this.resolveFunction(method, declaration);
+        });
+
+        this.endScope();
+        this.currentClass = enclosingClass;
+    }
+
     visitExpressionStmt(stmt: Expression): void {
         this.resolve(stmt.expression);
     }
@@ -122,7 +151,12 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         if (this.currentFunction == FunctionType.NONE) {
             Lox.error(stmt.keyword, "Can't return from top-level code.");
         }
-        if (stmt.value) this.resolve(stmt.value);
+        if (stmt.value) {
+            if (this.currentFunction === FunctionType.INITIALIZER) {
+                Lox.error(stmt.keyword, "Can't return a value from an initializer.");
+            }
+            this.resolve(stmt.value);
+        }
     }
 
     visitVarStmt(stmt: Var): void {
@@ -153,6 +187,10 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
         expr.args.forEach(arg => this.resolve(arg));        
     }
 
+    visitGetExpr(expr: Get): void {
+        this.resolve(expr.object);
+    }
+
     visitGroupingExpr(expr: Grouping): void {
         this.resolve(expr.expression);
     }
@@ -164,6 +202,20 @@ export default class Resolver implements ExprVisitor<void>, StmtVisitor<void> {
     visitLogicalExpr(expr: Logical): void {
         this.resolve(expr.left);
         this.resolve(expr.right);
+    }
+
+    visitSetExpr(expr: Set): void {
+        this.resolve(expr.value);
+        this.resolve(expr.object);
+    }
+
+    visitThisExpr(expr: This): void {
+        if (this.currentClass === ClassType.NONE) {
+            Lox.error(expr.keyword, "Can't use 'this' outside of a class.");
+            return;
+        }
+
+        this.resolveLocal(expr, expr.keyword);
     }
 
     visitUnaryExpr(expr: Unary): void {

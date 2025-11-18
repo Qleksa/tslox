@@ -69,15 +69,19 @@ defineAst(outputDir, 'Expr', [
     'Assign   | name: Token, value: Expr',
     'Binary   | left: Expr, operator: Token, right: Expr',
     'Call     | callee: Expr, paren: Token, args: Expr[]',
+    'Get      | object: Expr, name: Token',
     'Grouping | expression: Expr',
     'Literal  | value: any',
     'Logical  | left: Expr, operator: Token, right: Expr',
+    'Set      | object: Expr, name: Token, value: Expr',
+    'This     | keyword: Token',
     'Unary    | operator: Token, right: Expr',
     'Variable | name: Token',
 ], 'import Token from "../../classes/types/Token";\n\n');
 
 defineAst(outputDir, 'Stmt', [
     'Block      | statements: Stmt[]',
+    'Class      | name: Token, methods: Function[]',
     'Expression | expression: Expr',
     'Function   | name: Token, params: Token[], body: Stmt[]',
     'If         | condition: Expr, thenBranch: Stmt, elseBranch: Stmt',
